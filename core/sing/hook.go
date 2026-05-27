@@ -66,7 +66,8 @@ func (h *HookServer) RoutedConnection(_ context.Context, conn net.Conn, m adapte
 			}
 		}
 	}
-	ipTraffic := usage.RecordConnectionTraffic(m.Inbound, uid, ip)
+	ipTraffic, releaseIPUsage := usage.RecordConnectionTraffic(m.Inbound, uid, ip)
+	conn = newReleaseConn(conn, releaseIPUsage)
 	var t *counter.TrafficCounter
 	if c, ok := h.counter.Load(m.Inbound); !ok {
 		t = counter.NewTrafficCounter()
@@ -116,7 +117,8 @@ func (h *HookServer) RoutedPacketConnection(_ context.Context, conn N.PacketConn
 			}
 		}
 	}
-	ipTraffic := usage.RecordConnectionTraffic(m.Inbound, uid, ip)
+	ipTraffic, releaseIPUsage := usage.RecordConnectionTraffic(m.Inbound, uid, ip)
+	conn = newReleasePacketConn(conn, releaseIPUsage)
 	var t *counter.TrafficCounter
 	if c, ok := h.counter.Load(m.Inbound); !ok {
 		t = counter.NewTrafficCounter()
@@ -126,4 +128,48 @@ func (h *HookServer) RoutedPacketConnection(_ context.Context, conn N.PacketConn
 	}
 	conn = counter.NewPacketConnMultiCounter(conn, t.GetCounter(m.User), ipTraffic)
 	return conn
+}
+
+type releaseConn struct {
+	net.Conn
+	release func()
+	once    sync.Once
+}
+
+func newReleaseConn(conn net.Conn, release func()) net.Conn {
+	if release == nil {
+		return conn
+	}
+	return &releaseConn{
+		Conn:    conn,
+		release: release,
+	}
+}
+
+func (c *releaseConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(c.release)
+	return err
+}
+
+type releasePacketConn struct {
+	N.PacketConn
+	release func()
+	once    sync.Once
+}
+
+func newReleasePacketConn(conn N.PacketConn, release func()) N.PacketConn {
+	if release == nil {
+		return conn
+	}
+	return &releasePacketConn{
+		PacketConn: conn,
+		release:    release,
+	}
+}
+
+func (c *releasePacketConn) Close() error {
+	err := c.PacketConn.Close()
+	c.once.Do(c.release)
+	return err
 }

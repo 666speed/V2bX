@@ -15,11 +15,14 @@ import (
 )
 
 const maxIPUsageReportItems = 1000
+const maxIPUsagePendingBatches = 60
+const maxIPUsagePendingAge = 10 * time.Minute
 const reportFailureLogInterval = 10 * time.Minute
 
 type ipUsageReportBatch struct {
 	ID         string
 	ReportedAt int64
+	CreatedAt  int64
 	Items      []panel.IPUsageReport
 }
 
@@ -74,10 +77,7 @@ func (c *Controller) reportUserTrafficTask() (err error) {
 		}
 	}
 
-	if !c.flushIPUsagePending() {
-		userTraffic = nil
-		return nil
-	}
+	pendingClear := c.flushIPUsagePending()
 
 	ipUsage := usage.Snapshot(c.tag, true)
 	if len(ipUsage) > 0 {
@@ -91,6 +91,7 @@ func (c *Controller) reportUserTrafficTask() (err error) {
 			batch := ipUsageReportBatch{
 				ID:         c.newIPUsageReportID(start),
 				ReportedAt: time.Now().Unix(),
+				CreatedAt:  time.Now().Unix(),
 				Items:      make([]panel.IPUsageReport, 0, len(chunk)),
 			}
 			for _, item := range chunk {
@@ -102,8 +103,12 @@ func (c *Controller) reportUserTrafficTask() (err error) {
 					Download:    item.Download,
 				})
 			}
+			if !pendingClear {
+				c.queueIPUsagePending(batch)
+				continue
+			}
 			if err = c.apiClient.ReportIPUsage(batch.ID, batch.ReportedAt, batch.Items); err != nil {
-				c.ipUsagePending = append(c.ipUsagePending, batch)
+				c.queueIPUsagePending(batch)
 				c.logReportFailure(&c.lastIPUsageFailureLog, "Report IP usage chunk failed", log.Fields{
 					"tag":   c.tag,
 					"err":   err,
@@ -124,6 +129,13 @@ func (c *Controller) reportUserTrafficTask() (err error) {
 }
 
 func (c *Controller) flushIPUsagePending() bool {
+	dropped := c.pruneIPUsagePending()
+	if dropped > 0 {
+		c.logReportFailure(&c.lastIPUsageFailureLog, "Drop stale IP usage report batches", log.Fields{
+			"tag":     c.tag,
+			"dropped": dropped,
+		})
+	}
 	if len(c.ipUsagePending) == 0 {
 		return true
 	}
@@ -131,16 +143,17 @@ func (c *Controller) flushIPUsagePending() bool {
 	pending := c.ipUsagePending
 	c.ipUsagePending = nil
 	reported := 0
-	for _, batch := range pending {
+	for index, batch := range pending {
 		if err := c.apiClient.ReportIPUsage(batch.ID, batch.ReportedAt, batch.Items); err != nil {
-			c.ipUsagePending = append(c.ipUsagePending, batch)
+			c.ipUsagePending = append(c.ipUsagePending, pending[index:]...)
+			c.pruneIPUsagePending()
 			c.logReportFailure(&c.lastIPUsageFailureLog, "Retry IP usage report failed", log.Fields{
 				"tag":       c.tag,
 				"err":       err,
 				"report_id": batch.ID,
 				"count":     len(batch.Items),
 			})
-			continue
+			return false
 		}
 		reported += len(batch.Items)
 	}
@@ -148,6 +161,50 @@ func (c *Controller) flushIPUsagePending() bool {
 		log.WithField("tag", c.tag).Debugf("Report %d pending IP usage rows", reported)
 	}
 	return len(c.ipUsagePending) == 0
+}
+
+func (c *Controller) queueIPUsagePending(batch ipUsageReportBatch) {
+	if len(batch.Items) == 0 {
+		return
+	}
+	if batch.CreatedAt <= 0 {
+		batch.CreatedAt = time.Now().Unix()
+	}
+	c.ipUsagePending = append(c.ipUsagePending, batch)
+	if dropped := c.pruneIPUsagePending(); dropped > 0 {
+		c.logReportFailure(&c.lastIPUsageFailureLog, "Drop overflow IP usage report batches", log.Fields{
+			"tag":     c.tag,
+			"dropped": dropped,
+			"kept":    len(c.ipUsagePending),
+		})
+	}
+}
+
+func (c *Controller) pruneIPUsagePending() int {
+	if len(c.ipUsagePending) == 0 {
+		return 0
+	}
+
+	now := time.Now().Unix()
+	maxAgeSeconds := int64(maxIPUsagePendingAge / time.Second)
+	kept := c.ipUsagePending[:0]
+	dropped := 0
+	for _, batch := range c.ipUsagePending {
+		if batch.CreatedAt > 0 && now-batch.CreatedAt > maxAgeSeconds {
+			dropped++
+			continue
+		}
+		kept = append(kept, batch)
+	}
+
+	if len(kept) > maxIPUsagePendingBatches {
+		overflow := len(kept) - maxIPUsagePendingBatches
+		dropped += overflow
+		kept = kept[overflow:]
+	}
+
+	c.ipUsagePending = kept
+	return dropped
 }
 
 func (c *Controller) logReportFailure(last *time.Time, message string, fields log.Fields) {
