@@ -123,6 +123,14 @@ type UserTraffic struct {
 	Download int64
 }
 
+type IPUsageReport struct {
+	UID         int    `json:"user_id"`
+	IP          string `json:"ip"`
+	Connections int64  `json:"connect_count"`
+	Upload      int64  `json:"upload"`
+	Download    int64  `json:"download"`
+}
+
 // ReportUserTraffic reports the user traffic
 func (c *Client) ReportUserTraffic(userTraffic []UserTraffic) error {
 	data := make(map[int][]int64, len(userTraffic))
@@ -139,6 +147,22 @@ func (c *Client) ReportUserTraffic(userTraffic []UserTraffic) error {
 		return err
 	}
 	return nil
+}
+
+func (c *Client) ReportIPUsage(reportID string, reportedAt int64, items []IPUsageReport) error {
+	if len(items) == 0 {
+		return nil
+	}
+	const path = "/api/v1/server/ip-whitelist/usage"
+	r, err := c.client.R().
+		SetBody(map[string]any{
+			"report_id":   reportID,
+			"reported_at": reportedAt,
+			"items":       items,
+		}).
+		ForceContentType("application/json").
+		Post(path)
+	return c.checkResponse(r, path, err)
 }
 
 func (c *Client) ReportNodeOnlineUsers(data *map[int][]string) error {

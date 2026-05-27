@@ -23,6 +23,7 @@ type Controller struct {
 	info                      *panel.NodeInfo
 	nodeInfoMonitorPeriodic   *task.Task
 	userReportPeriodic        *task.Task
+	ipUsagePending            []ipUsageReportBatch
 	renewCertPeriodic         *task.Task
 	dynamicSpeedLimitPeriodic *task.Task
 	onlineIpReportPeriodic    *task.Task

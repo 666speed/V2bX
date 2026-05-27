@@ -82,6 +82,13 @@ func DeleteLimiter(tag string) {
 	limitLock.Unlock()
 }
 
+func (l *Limiter) UserID(taguuid string) (int, bool) {
+	if v, ok := l.UserLimitInfo.Load(taguuid); ok {
+		return v.(*UserLimitInfo).UID, true
+	}
+	return 0, false
+}
+
 func (l *Limiter) UpdateUser(tag string, added []panel.UserInfo, deleted []panel.UserInfo) {
 	for i := range deleted {
 		l.UserLimitInfo.Delete(format.UserTag(tag, deleted[i].Uuid))

@@ -8,6 +8,7 @@ import (
 
 	"github.com/InazumaV/V2bX/common/format"
 	"github.com/InazumaV/V2bX/common/rate"
+	"github.com/InazumaV/V2bX/common/usage"
 
 	"github.com/InazumaV/V2bX/limiter"
 
@@ -42,6 +43,7 @@ func (h *HookServer) RoutedConnection(_ context.Context, conn net.Conn, m adapte
 	} else if b != nil {
 		conn = rate.NewConnRateLimiter(conn, b)
 	}
+	uid, _ := l.UserID(taguuid)
 	if l != nil {
 		destStr := m.Destination.AddrString()
 		protocol := m.Protocol
@@ -64,6 +66,7 @@ func (h *HookServer) RoutedConnection(_ context.Context, conn net.Conn, m adapte
 			}
 		}
 	}
+	usage.RecordConnection(m.Inbound, uid, ip)
 	var t *counter.TrafficCounter
 	if c, ok := h.counter.Load(m.Inbound); !ok {
 		t = counter.NewTrafficCounter()
@@ -71,7 +74,7 @@ func (h *HookServer) RoutedConnection(_ context.Context, conn net.Conn, m adapte
 	} else {
 		t = c.(*counter.TrafficCounter)
 	}
-	conn = counter.NewConnCounter(conn, t.GetCounter(m.User))
+	conn = counter.NewConnMultiCounter(conn, t.GetCounter(m.User), usage.Traffic(m.Inbound, uid, ip))
 	return conn
 }
 
@@ -90,6 +93,7 @@ func (h *HookServer) RoutedPacketConnection(_ context.Context, conn N.PacketConn
 	} else if b != nil {
 		//conn = rate.NewPacketConnCounter(conn, b)
 	}
+	uid, _ := l.UserID(taguuid)
 	if l != nil {
 		destStr := m.Destination.AddrString()
 		protocol := m.Destination.Network()
@@ -112,6 +116,7 @@ func (h *HookServer) RoutedPacketConnection(_ context.Context, conn N.PacketConn
 			}
 		}
 	}
+	usage.RecordConnection(m.Inbound, uid, ip)
 	var t *counter.TrafficCounter
 	if c, ok := h.counter.Load(m.Inbound); !ok {
 		t = counter.NewTrafficCounter()
@@ -119,6 +124,6 @@ func (h *HookServer) RoutedPacketConnection(_ context.Context, conn N.PacketConn
 	} else {
 		t = c.(*counter.TrafficCounter)
 	}
-	conn = counter.NewPacketConnCounter(conn, t.GetCounter(m.User))
+	conn = counter.NewPacketConnMultiCounter(conn, t.GetCounter(m.User), usage.Traffic(m.Inbound, uid, ip))
 	return conn
 }

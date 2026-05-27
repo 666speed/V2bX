@@ -1,13 +1,26 @@
 package node
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/InazumaV/V2bX/api/panel"
+	"github.com/InazumaV/V2bX/common/usage"
 	log "github.com/sirupsen/logrus"
 )
+
+const maxIPUsageReportItems = 1000
+
+type ipUsageReportBatch struct {
+	ID         string
+	ReportedAt int64
+	Items      []panel.IPUsageReport
+}
 
 func (c *Controller) reportUserTrafficTask() (err error) {
 	userTraffic, _ := c.server.GetUserTrafficSlice(c.tag, true)
@@ -57,8 +70,88 @@ func (c *Controller) reportUserTrafficTask() (err error) {
 		}
 	}
 
+	if !c.flushIPUsagePending() {
+		userTraffic = nil
+		return nil
+	}
+
+	ipUsage := usage.Snapshot(c.tag, true)
+	if len(ipUsage) > 0 {
+		reported := 0
+		for start := 0; start < len(ipUsage); start += maxIPUsageReportItems {
+			end := start + maxIPUsageReportItems
+			if end > len(ipUsage) {
+				end = len(ipUsage)
+			}
+			chunk := ipUsage[start:end]
+			batch := ipUsageReportBatch{
+				ID:         c.newIPUsageReportID(start),
+				ReportedAt: time.Now().Unix(),
+				Items:      make([]panel.IPUsageReport, 0, len(chunk)),
+			}
+			for _, item := range chunk {
+				batch.Items = append(batch.Items, panel.IPUsageReport{
+					UID:         item.UID,
+					IP:          item.IP,
+					Connections: item.Connections,
+					Upload:      item.Upload,
+					Download:    item.Download,
+				})
+			}
+			if err = c.apiClient.ReportIPUsage(batch.ID, batch.ReportedAt, batch.Items); err != nil {
+				c.ipUsagePending = append(c.ipUsagePending, batch)
+				log.WithFields(log.Fields{
+					"tag":   c.tag,
+					"err":   err,
+					"start": start,
+					"count": len(chunk),
+				}).Info("Report IP usage chunk failed")
+				continue
+			}
+			reported += len(batch.Items)
+		}
+		if reported > 0 {
+			log.WithField("tag", c.tag).Infof("Report %d IP usage rows", reported)
+		}
+	}
+
 	userTraffic = nil
 	return nil
+}
+
+func (c *Controller) flushIPUsagePending() bool {
+	if len(c.ipUsagePending) == 0 {
+		return true
+	}
+
+	pending := c.ipUsagePending
+	c.ipUsagePending = nil
+	reported := 0
+	for _, batch := range pending {
+		if err := c.apiClient.ReportIPUsage(batch.ID, batch.ReportedAt, batch.Items); err != nil {
+			c.ipUsagePending = append(c.ipUsagePending, batch)
+			log.WithFields(log.Fields{
+				"tag":       c.tag,
+				"err":       err,
+				"report_id": batch.ID,
+				"count":     len(batch.Items),
+			}).Info("Retry IP usage report failed")
+			continue
+		}
+		reported += len(batch.Items)
+	}
+	if reported > 0 {
+		log.WithField("tag", c.tag).Infof("Report %d pending IP usage rows", reported)
+	}
+	return len(c.ipUsagePending) == 0
+}
+
+func (c *Controller) newIPUsageReportID(offset int) string {
+	random := make([]byte, 16)
+	if _, err := rand.Read(random); err != nil {
+		return fmt.Sprintf("%d-%d-%d", c.apiClient.NodeId, time.Now().UnixNano(), offset)
+	}
+	return fmt.Sprintf("%d-%d-%d-%s", c.apiClient.NodeId, time.Now().UnixNano(), offset, hex.EncodeToString(random))
 }
 
 func compareUserList(old, new []panel.UserInfo) (deleted, added []panel.UserInfo) {
