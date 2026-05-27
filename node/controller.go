@@ -3,6 +3,7 @@ package node
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/InazumaV/V2bX/api/panel"
 	"github.com/InazumaV/V2bX/common/task"
@@ -24,6 +25,9 @@ type Controller struct {
 	nodeInfoMonitorPeriodic   *task.Task
 	userReportPeriodic        *task.Task
 	ipUsagePending            []ipUsageReportBatch
+	lastTrafficFailureLog     time.Time
+	lastOnlineFailureLog      time.Time
+	lastIPUsageFailureLog     time.Time
 	renewCertPeriodic         *task.Task
 	dynamicSpeedLimitPeriodic *task.Task
 	onlineIpReportPeriodic    *task.Task

@@ -66,7 +66,7 @@ func (h *HookServer) RoutedConnection(_ context.Context, conn net.Conn, m adapte
 			}
 		}
 	}
-	usage.RecordConnection(m.Inbound, uid, ip)
+	ipTraffic := usage.RecordConnectionTraffic(m.Inbound, uid, ip)
 	var t *counter.TrafficCounter
 	if c, ok := h.counter.Load(m.Inbound); !ok {
 		t = counter.NewTrafficCounter()
@@ -74,7 +74,7 @@ func (h *HookServer) RoutedConnection(_ context.Context, conn net.Conn, m adapte
 	} else {
 		t = c.(*counter.TrafficCounter)
 	}
-	conn = counter.NewConnMultiCounter(conn, t.GetCounter(m.User), usage.Traffic(m.Inbound, uid, ip))
+	conn = counter.NewConnMultiCounter(conn, t.GetCounter(m.User), ipTraffic)
 	return conn
 }
 
@@ -116,7 +116,7 @@ func (h *HookServer) RoutedPacketConnection(_ context.Context, conn N.PacketConn
 			}
 		}
 	}
-	usage.RecordConnection(m.Inbound, uid, ip)
+	ipTraffic := usage.RecordConnectionTraffic(m.Inbound, uid, ip)
 	var t *counter.TrafficCounter
 	if c, ok := h.counter.Load(m.Inbound); !ok {
 		t = counter.NewTrafficCounter()
@@ -124,6 +124,6 @@ func (h *HookServer) RoutedPacketConnection(_ context.Context, conn N.PacketConn
 	} else {
 		t = c.(*counter.TrafficCounter)
 	}
-	conn = counter.NewPacketConnMultiCounter(conn, t.GetCounter(m.User), usage.Traffic(m.Inbound, uid, ip))
+	conn = counter.NewPacketConnMultiCounter(conn, t.GetCounter(m.User), ipTraffic)
 	return conn
 }

@@ -38,12 +38,17 @@ var (
 )
 
 func RecordConnection(tag string, uid int, ip string) {
+	RecordConnectionTraffic(tag, uid, ip)
+}
+
+func RecordConnectionTraffic(tag string, uid int, ip string) *counter.TrafficStorage {
 	stat := getStat(tag, uid, ip)
 	if stat == nil {
-		return
+		return nil
 	}
 	stat.connections.Add(1)
-	RememberUserIP(tag, uid, ip)
+	lastUserIP.Store(tag+"|"+strconv.Itoa(uid), stat.ip)
+	return stat.traffic
 }
 
 func Traffic(tag string, uid int, ip string) *counter.TrafficStorage {

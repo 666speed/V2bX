@@ -55,11 +55,12 @@ func serverHandle(_ *cobra.Command, _ []string) {
 		log.SetLevel(log.ErrorLevel)
 	}
 	if c.LogConfig.Output != "" {
-		f, err := os.OpenFile(c.LogConfig.Output, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		f, err := newRetentionLogWriter(c.LogConfig.Output)
 		if err != nil {
 			log.WithField("err", err).Error("Open log file failed, using stdout instead")
+		} else {
+			log.SetOutput(f)
 		}
-		log.SetOutput(f)
 	}
 	limiter.Init()
 	log.Info("Start V2bX...")

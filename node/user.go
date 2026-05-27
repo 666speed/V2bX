@@ -15,6 +15,7 @@ import (
 )
 
 const maxIPUsageReportItems = 1000
+const reportFailureLogInterval = 10 * time.Minute
 
 type ipUsageReportBatch struct {
 	ID         string
@@ -27,18 +28,21 @@ func (c *Controller) reportUserTrafficTask() (err error) {
 	if len(userTraffic) > 0 {
 		err = c.apiClient.ReportUserTraffic(userTraffic)
 		if err != nil {
-			log.WithFields(log.Fields{
+			c.logReportFailure(&c.lastTrafficFailureLog, "Report user traffic failed", log.Fields{
 				"tag": c.tag,
 				"err": err,
-			}).Info("Report user traffic failed")
+			})
 		} else {
-			log.WithField("tag", c.tag).Infof("Report %d users traffic", len(userTraffic))
+			log.WithField("tag", c.tag).Debugf("Report %d users traffic", len(userTraffic))
 			log.WithField("tag", c.tag).Debugf("User traffic: %+v", userTraffic)
 		}
 	}
 
 	if onlineDevice, err := c.limiter.GetOnlineDevice(); err != nil {
-		log.Print(err)
+		c.logReportFailure(&c.lastOnlineFailureLog, "Get online devices failed", log.Fields{
+			"tag": c.tag,
+			"err": err,
+		})
 	} else if len(*onlineDevice) > 0 {
 		// Only report user has traffic > 100kb to allow ping test
 		var result []panel.OnlineUser
@@ -60,12 +64,12 @@ func (c *Controller) reportUserTrafficTask() (err error) {
 			data[onlineuser.UID] = append(data[onlineuser.UID], onlineuser.IP)
 		}
 		if err = c.apiClient.ReportNodeOnlineUsers(&data); err != nil {
-			log.WithFields(log.Fields{
+			c.logReportFailure(&c.lastOnlineFailureLog, "Report online users failed", log.Fields{
 				"tag": c.tag,
 				"err": err,
-			}).Info("Report online users failed")
+			})
 		} else {
-			log.WithField("tag", c.tag).Infof("Total %d online users, %d Reported", len(*onlineDevice), len(result))
+			log.WithField("tag", c.tag).Debugf("Total %d online users, %d Reported", len(*onlineDevice), len(result))
 			log.WithField("tag", c.tag).Debugf("Online users: %+v", data)
 		}
 	}
@@ -100,18 +104,18 @@ func (c *Controller) reportUserTrafficTask() (err error) {
 			}
 			if err = c.apiClient.ReportIPUsage(batch.ID, batch.ReportedAt, batch.Items); err != nil {
 				c.ipUsagePending = append(c.ipUsagePending, batch)
-				log.WithFields(log.Fields{
+				c.logReportFailure(&c.lastIPUsageFailureLog, "Report IP usage chunk failed", log.Fields{
 					"tag":   c.tag,
 					"err":   err,
 					"start": start,
 					"count": len(chunk),
-				}).Info("Report IP usage chunk failed")
+				})
 				continue
 			}
 			reported += len(batch.Items)
 		}
 		if reported > 0 {
-			log.WithField("tag", c.tag).Infof("Report %d IP usage rows", reported)
+			log.WithField("tag", c.tag).Debugf("Report %d IP usage rows", reported)
 		}
 	}
 
@@ -130,20 +134,29 @@ func (c *Controller) flushIPUsagePending() bool {
 	for _, batch := range pending {
 		if err := c.apiClient.ReportIPUsage(batch.ID, batch.ReportedAt, batch.Items); err != nil {
 			c.ipUsagePending = append(c.ipUsagePending, batch)
-			log.WithFields(log.Fields{
+			c.logReportFailure(&c.lastIPUsageFailureLog, "Retry IP usage report failed", log.Fields{
 				"tag":       c.tag,
 				"err":       err,
 				"report_id": batch.ID,
 				"count":     len(batch.Items),
-			}).Info("Retry IP usage report failed")
+			})
 			continue
 		}
 		reported += len(batch.Items)
 	}
 	if reported > 0 {
-		log.WithField("tag", c.tag).Infof("Report %d pending IP usage rows", reported)
+		log.WithField("tag", c.tag).Debugf("Report %d pending IP usage rows", reported)
 	}
 	return len(c.ipUsagePending) == 0
+}
+
+func (c *Controller) logReportFailure(last *time.Time, message string, fields log.Fields) {
+	now := time.Now()
+	if !last.IsZero() && now.Sub(*last) < reportFailureLogInterval {
+		return
+	}
+	*last = now
+	log.WithFields(fields).Warn(message)
 }
 
 func (c *Controller) newIPUsageReportID(offset int) string {
