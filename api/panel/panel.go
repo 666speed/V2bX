@@ -12,6 +12,7 @@ import (
 
 	"github.com/InazumaV/V2bX/conf"
 	"github.com/go-resty/resty/v2"
+	"github.com/gorilla/websocket"
 )
 
 // Panel is the interface for different panel's api.
@@ -28,15 +29,21 @@ type Client struct {
 	responseBodyHash string
 	UserList         *UserListBody
 	AliveMap         *AliveMap
+	wsDialer         *websocket.Dialer
 }
 
 func New(c *conf.ApiConfig) (*Client, error) {
 	var client *resty.Client
+	wsDialer := *websocket.DefaultDialer
 	if c.APISendIP != "" {
+		localAddr := &net.TCPAddr{
+			IP: net.ParseIP(c.APISendIP),
+		}
 		client = resty.NewWithLocalAddr(&net.TCPAddr{
 			IP: net.ParseIP(c.APISendIP),
 		})
-	} else {	
+		wsDialer.NetDialContext = (&net.Dialer{LocalAddr: localAddr}).DialContext
+	} else {
 		client = resty.New()
 	}
 	client.SetRetryCount(3)
@@ -86,5 +93,6 @@ func New(c *conf.ApiConfig) (*Client, error) {
 		NodeId:    c.NodeID,
 		UserList:  &UserListBody{},
 		AliveMap:  &AliveMap{},
+		wsDialer:  &wsDialer,
 	}, nil
 }

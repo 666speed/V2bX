@@ -1,8 +1,10 @@
 package node
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/InazumaV/V2bX/api/panel"
 	"github.com/InazumaV/V2bX/common/task"
@@ -26,6 +28,8 @@ type Controller struct {
 	renewCertPeriodic         *task.Task
 	dynamicSpeedLimitPeriodic *task.Task
 	onlineIpReportPeriodic    *task.Task
+	wsCancel                  context.CancelFunc
+	mu                        sync.Mutex
 	*conf.Options
 }
 
@@ -94,6 +98,7 @@ func (c *Controller) Start() error {
 	log.WithField("tag", c.tag).Infof("Added %d new users", added)
 	c.info = node
 	c.startTasks(node)
+	c.startWebSocket()
 	return nil
 }
 
@@ -114,6 +119,10 @@ func (c *Controller) Close() error {
 	}
 	if c.onlineIpReportPeriodic != nil {
 		c.onlineIpReportPeriodic.Close()
+	}
+	if c.wsCancel != nil {
+		c.wsCancel()
+		c.wsCancel = nil
 	}
 	err := c.server.DelNode(c.tag)
 	if err != nil {
