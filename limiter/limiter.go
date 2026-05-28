@@ -128,7 +128,7 @@ func (l *Limiter) CheckLimit(taguuid string, ip string, isTcp bool, noSSUDP bool
 		u := v.(*UserLimitInfo)
 		deviceLimit = u.DeviceLimit
 		uid = u.UID
-		if u.WhitelistEnabled && !checkWhitelist(ip, u.WhitelistCIDRs) {
+		if !u.WhitelistEnabled || !checkWhitelist(ip, u.WhitelistCIDRs) {
 			return nil, true
 		}
 		if u.ExpireTime < time.Now().Unix() && u.ExpireTime != 0 {

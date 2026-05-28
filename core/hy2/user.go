@@ -23,7 +23,7 @@ func (v *V2bX) Authenticate(addr net.Addr, auth string, tx uint64) (ok bool, id 
 	v.mutex.RLock()
 	defer v.mutex.RUnlock()
 	if user, exists := v.users[auth]; exists {
-		if user.IPWhitelistEnabled && !limiter.CheckIPWhitelist(extractIPFromAddr(addr), user.IPWhitelist) {
+		if !user.IPWhitelistEnabled || !limiter.CheckIPWhitelist(extractIPFromAddr(addr), user.IPWhitelist) {
 			return false, ""
 		}
 		return true, auth
