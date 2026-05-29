@@ -255,6 +255,7 @@ func userCompareKey(user panel.UserInfo) string {
 		strconv.Itoa(user.SpeedLimit),
 		strconv.Itoa(user.DeviceLimit),
 		strconv.FormatBool(user.IPWhitelistEnabled),
+		strconv.FormatBool(user.IPWhitelistBypass),
 		strings.Join(whitelist, ","),
 	}, "|")
 }

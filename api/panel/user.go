@@ -21,6 +21,7 @@ type UserInfo struct {
 	SpeedLimit         int      `json:"speed_limit" msgpack:"speed_limit"`
 	DeviceLimit        int      `json:"device_limit" msgpack:"device_limit"`
 	IPWhitelistEnabled bool     `json:"ip_whitelist_enabled" msgpack:"ip_whitelist_enabled"`
+	IPWhitelistBypass  bool     `json:"ip_whitelist_bypass" msgpack:"ip_whitelist_bypass"`
 	IPWhitelist        []string `json:"ip_whitelist" msgpack:"ip_whitelist"`
 }
 

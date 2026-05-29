@@ -41,6 +41,7 @@ type UserLimitInfo struct {
 	ExpireTime        int64
 	OverLimit         bool
 	WhitelistEnabled  bool
+	WhitelistBypass   bool
 	WhitelistCIDRs    []*net.IPNet
 }
 
@@ -128,7 +129,7 @@ func (l *Limiter) CheckLimit(taguuid string, ip string, isTcp bool, noSSUDP bool
 		u := v.(*UserLimitInfo)
 		deviceLimit = u.DeviceLimit
 		uid = u.UID
-		if !u.WhitelistEnabled || !checkWhitelist(ip, u.WhitelistCIDRs) {
+		if !u.WhitelistBypass && (!u.WhitelistEnabled || !checkWhitelist(ip, u.WhitelistCIDRs)) {
 			return nil, true
 		}
 		if u.ExpireTime < time.Now().Unix() && u.ExpireTime != 0 {
@@ -223,6 +224,7 @@ func buildUserLimitInfo(user panel.UserInfo) *UserLimitInfo {
 	userLimit := &UserLimitInfo{
 		UID:              user.Id,
 		WhitelistEnabled: user.IPWhitelistEnabled,
+		WhitelistBypass:  user.IPWhitelistBypass,
 		WhitelistCIDRs:   parseWhitelist(user.IPWhitelist),
 		OverLimit:        false,
 	}
